@@ -1,0 +1,79 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import MinMaxScaler
+
+#Preprocessing 
+data=pd.read_excel('ciqual2020.xls')
+
+
+#print(data.columns)
+data.drop(columns=['Alcool (g/100 g)','Vitamine K2 (µg/100 g)','alim_ssssgrp_nom_fr','alim_grp_code', 'alim_ssgrp_code', 'alim_ssssgrp_code','alim_nom_sci',
+                   'Energie, Règlement UE N° 1169/2011 (kJ/100 g)','Energie, N x facteur Jones, avec fibres  (kJ/100 g)',
+                   'Energie, N x facteur Jones, avec fibres  (kcal/100 g)','Protéines, N x facteur de Jones (g/100 g)'],inplace=True)
+data.drop(data[data['alim_grp_nom_fr']=='eaux et autres boissons'].index,inplace=True)
+data.drop(data[data['alim_grp_nom_fr']=='Nan'].index,inplace=True)
+data.replace('traces','' , inplace=True)
+data.replace('-','' , inplace=True)
+data.replace('nan','' , inplace=True)
+data.dropna(subset=['alim_ssgrp_nom_fr'], inplace=True)
+
+#conversion en numerique
+for col in range(4,data.shape[1]):
+                  data.iloc[:,col] = data.iloc[:,col].str.replace('<', '')
+                  data.iloc[:,col] = data.iloc[:,col].str.replace(' ', '')
+                  data.iloc[:,col] = data.iloc[:,col].str.replace(',', '.')
+                  data.iloc[:,col] = data.iloc[:,col].str.replace('nan', '')
+                  data.iloc[:,col] = pd.to_numeric(data.iloc[:,col], downcast="float")
+#afficahge dtypes et des noms de colonnes
+
+#replacing Nan by median of the subgroup
+value=data['alim_ssgrp_nom_fr'].unique()
+for col in data.columns[5:]:
+    for val in value:
+        data.loc[data['alim_ssgrp_nom_fr']==val,
+             col]=data.loc[data['alim_ssgrp_nom_fr']==val,
+             col].replace(np.nan, data.loc[data['alim_ssgrp_nom_fr']==val,
+                                                       col].median())
+for val in value:
+    data.loc[data['alim_ssgrp_nom_fr']==val,'Energie, Règlement UE N° 1169/2011 (kcal/100 g)'
+              ]=data.loc[data['alim_ssgrp_nom_fr']==val,
+              'Energie, Règlement UE N° 1169/2011 (kcal/100 g)'].replace(np.nan, data.loc[data['alim_ssgrp_nom_fr']==val,
+                                                        'Energie, Règlement UE N° 1169/2011 (kcal/100 g)'].median())
+#deleting group columns and creating array of food names
+foodnames=data['alim_nom_fr']
+data.drop(columns=['alim_grp_nom_fr','alim_ssgrp_nom_fr','alim_code','alim_nom_fr' ],inplace=True)
+
+#Normalising datas
+data_n=pd.DataFrame(MinMaxScaler().fit_transform(data),index=data.index, columns=data.columns)
+
+#Creating nex columns: sum of vitamins
+data_n['Sum of vitamins']=data_n.iloc[:,48:].sum(axis=1)
+
+#Exporting metadatas
+type=data.dtypes
+colonne=data.columns
+S=data.shape
+
+#Draw heatmap of correlations of all variables
+plt.figure(figsize=(32, 8))
+sns.heatmap(data_n.corr())
+
+score=data_n['Sum of vitamins']+data_n['Fibres alimentaires (g/100 g)']\
+    -data_n['Sucres (g/100 g)']-5*data_n['Sel chlorure de sodium (g/100 g)']-2*data_n['AG saturés (g/100 g)']
+    
+score=score.to_frame()  
+ 
+score_n=100*pd.DataFrame(MinMaxScaler().fit_transform(score),index=score.index, columns=score.columns)
+
+score_n=score_n.dropna()
+
+score_n=score_n.astype('int')
+
+result=pd.concat([foodnames,score_n],axis=1)
+
+result.rename(columns={'alim_nom_fr':'Aliment', 0:'Score'}, inplace=True)
+
+result=result.sort_values(by=['Score'],ascending=False)
+
